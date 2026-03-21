@@ -1,0 +1,19 @@
+./training_venv312/bin/python scripts/finetune/merge_peft_adapter.py \
+  --adapter-path outputs/huatuo_stage1_qwen25_3b_unsloth_trainer_full \
+  --base-model-path models/Qwen2.5-3B-Instruct \
+  --output-dir outputs/merged_models/qwen25_3b_huatuo_stage1_merged \
+  --dtype bfloat16 \
+  --device cuda
+
+
+python scripts/benchmark/medqa_qwen25_reasoning_pipeline.py   
+--model-path outputs/huatuo_stage1_qwen25_3b_full_trainer/checkpoint-300   
+--dataset-path dataset/MedQA   
+--split test   
+--num-samples 1000000   
+--batch-size 16   
+--max-new-tokens 800   
+--prompt-max-length 3072   
+--device cuda   
+--output-dir results/medqa_qwen25_reasoning_pipeline   
+--tag qwen25-3b-huatuo-stage1-full-sft

@@ -1,0 +1,36 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*.so
+
+# Local environments
+.venv/
+.venv_unsloth/
+venv/
+env/
+training_venv312/
+
+# Editor / OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Experiment artifacts
+models/
+dataset/
+outputs/
+results/
+unsloth_compiled_cache/
+wandb/
+
+# Logs and runtime files
+*.log
+*.out
+*.err
+
+# Training / checkpoint leftovers
+checkpoint-*/
+*.bin
+*.pt
+*.pth
+*.safetensors
