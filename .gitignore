@@ -9,6 +9,7 @@ __pycache__/
 venv/
 env/
 training_venv312/
+stage2_venv312/
 
 # Editor / OS files
 .DS_Store
@@ -18,10 +19,12 @@ training_venv312/
 # Experiment artifacts
 models/
 dataset/
+data/
 outputs/
 results/
 unsloth_compiled_cache/
 wandb/
+PrimeKG/
 
 # Logs and runtime files
 *.log
@@ -34,3 +37,6 @@ checkpoint-*/
 *.pt
 *.pth
 *.safetensors
+
+# Doc
+docs/

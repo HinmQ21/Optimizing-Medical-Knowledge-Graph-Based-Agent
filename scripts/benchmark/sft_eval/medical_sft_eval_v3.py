@@ -56,6 +56,31 @@ def _decode_generated(tokenizer, token_ids, format_type: str) -> str:
     return tokenizer.decode(token_ids, skip_special_tokens=True).strip()
 
 
+# Tags that should act as early stop tokens when format_type == "tag".
+# </answer> marks the end of the structured response — everything after is waste.
+_TAG_STOP_TOKENS = ["</answer>"]
+
+
+def _build_eos_token_ids(tokenizer, format_type: str) -> list[int]:
+    """Build the list of EOS token IDs for model.generate().
+
+    Always includes the tokenizer's default eos_token_id (<|im_end|>).
+    For tag format, also includes </answer> if it exists as a single token
+    in the vocabulary (i.e. was registered as a special token during training).
+    This lets generation stop immediately after </answer> instead of
+    wasting tokens on trailing content up to max_new_tokens.
+    """
+    eos_ids = [tokenizer.eos_token_id]
+    if format_type == "tag":
+        vocab = tokenizer.get_vocab()
+        for tag in _TAG_STOP_TOKENS:
+            if tag in vocab:
+                tag_id = vocab[tag]
+                if tag_id not in eos_ids:
+                    eos_ids.append(tag_id)
+    return eos_ids
+
+
 # ---------------------------------------------------------------------------
 # DatasetAdapter – everything that differs between datasets
 # ---------------------------------------------------------------------------
@@ -561,6 +586,7 @@ def _force_extract(
     prompt_max_length: int,
     final_section_re: re.Pattern | None,
     format_type: str,
+    eos_token_ids: list[int],
 ) -> tuple[str | None, str]:
     """Re-prompt the model to extract a clean answer from a malformed draft."""
     prompt = adapter.build_fallback_prompt(norm, draft_response)
@@ -578,6 +604,7 @@ def _force_extract(
             max_new_tokens=24,
             do_sample=False,
             use_cache=use_cache,
+            eos_token_id=eos_token_ids,
             pad_token_id=tokenizer.pad_token_id,
         )
     prompt_len = inputs["input_ids"].shape[1]
@@ -610,6 +637,10 @@ def run_benchmark(
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+    eos_token_ids = _build_eos_token_ids(tokenizer, format_type)
+    eos_token_names = {tid: tokenizer.decode([tid]) for tid in eos_token_ids}
+    print(f"  eos_ids  : {eos_token_names}")
 
     wants_cuda = device_preference == "cuda" or (
         device_preference == "auto" and torch.cuda.is_available()
@@ -663,6 +694,7 @@ def run_benchmark(
                 max_new_tokens=max_new_tokens,
                 do_sample=False,
                 use_cache=use_cache,
+                eos_token_id=eos_token_ids,
                 pad_token_id=tokenizer.pad_token_id,
             )
 
@@ -687,6 +719,7 @@ def run_benchmark(
                     prompt_max_length=prompt_max_length,
                     final_section_re=final_section_re,
                     format_type=format_type,
+                    eos_token_ids=eos_token_ids,
                 )
                 if pred is not None:
                     fallback_recovered += 1
@@ -748,6 +781,7 @@ def run_benchmark(
         "device": str(model_input_device),
         "max_new_tokens": max_new_tokens,
         "prompt_max_length": prompt_max_length,
+        "eos_token_ids": eos_token_names,
         "use_cache": use_cache,
         "run_tag": run_tag,
         "fallback_attempts": fallback_attempts,
@@ -799,7 +833,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-samples", type=int, default=0, help="Samples to evaluate (adapter default if 0).")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--max-new-tokens", type=int, default=384)
+    parser.add_argument("--max-new-tokens", type=int, default=2048)
     parser.add_argument("--prompt-max-length", type=int, default=3072)
     parser.add_argument("--output-dir", default="", help="Override output directory (adapter default if empty).")
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
