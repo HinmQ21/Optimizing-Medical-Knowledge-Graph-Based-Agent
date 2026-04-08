@@ -60,7 +60,7 @@ class MedicalKnowledgeTool:
 
         # Encoder on CPU — do not compete with GPU training
         inst.encoder = SentenceTransformer(
-            'abhinand/MedEmbed-large-v0.1', device='cpu'
+            'abhinand/MedEmbed-large-v0.1', device='cuda'
         )
 
         # FAISS indices

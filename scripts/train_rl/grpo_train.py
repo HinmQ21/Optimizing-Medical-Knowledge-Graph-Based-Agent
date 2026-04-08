@@ -31,6 +31,11 @@ from trl.chat_template_utils import qwen3_schema  # Qwen2.5 uses same <tool_call
 from scripts.serve.retrieval_tool import MedicalKnowledgeTool, search_medical_knowledge
 from scripts.train_rl.data_prep import load_medqa
 from scripts.train_rl.reward_fns import answer_reward, format_reward, tool_quality_reward, enhanced_tool_quality_reward
+from scripts.train_rl.reward_fns_gdpo import (
+    answer_reward as gdpo_answer_reward,
+    structure_reward,
+    tool_reward,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +197,19 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=2,
         help="Number of batches to prefetch per DataLoader worker (default 2).",
+    )
+
+    # GDPO
+    parser.add_argument(
+        "--use-gdpo",
+        action="store_true",
+        default=False,
+        help=(
+            "Use GDPO reward design: orthogonal (structure, answer, tool) rewards "
+            "with multi_objective_aggregation='normalize_then_sum'. "
+            "Replaces format_reward + enhanced_tool_quality_reward with "
+            "structure_reward + tool_reward to remove tool-call signal overlap."
+        ),
     )
 
     return parser.parse_args()
@@ -376,16 +394,28 @@ def main() -> None:
         # Tool calling
         max_tool_calling_iterations=args.max_tool_calling_iterations,
 
-        # GRPO algorithm
-        loss_type="grpo",
+        # RL algorithm
+        # GDPO uses "dapo" (length-unbiased) as recommended pairing.
+        # GRPO keeps original "grpo" to avoid unintended behavioral change.
+        loss_type="dapo" if args.use_gdpo else "grpo",
         beta=args.beta,
         epsilon=args.epsilon,
         scale_rewards="group",
         num_iterations=1,
 
-        # Reward — rebalanced to prevent tool-calling collapse.
-        # Previous [0.15, 0.70, 0.15] let model shortcut by skipping tools.
-        reward_weights=[0.25, 0.50, 0.25],
+        # Multi-reward aggregation:
+        #   GRPO (default): sum_then_normalize — combine weighted rewards, then normalize.
+        #   GDPO (--use-gdpo): normalize_then_sum — normalize each reward independently,
+        #       then combine. Requires orthogonal reward design (reward_fns_gdpo.py).
+        multi_objective_aggregation=(
+            "normalize_then_sum" if args.use_gdpo else "sum_then_normalize"
+        ),
+
+        # Reward weights:
+        #   GRPO: [0.25 format, 0.50 answer, 0.25 tool_quality]
+        #   GDPO: [0.20 structure, 0.50 answer, 0.30 tool] — tool weight increased
+        #       because structure_reward no longer shares tool-call gradient.
+        reward_weights=[0.20, 0.50, 0.30] if args.use_gdpo else [0.25, 0.50, 0.25],
 
         # Training
         num_train_epochs=args.num_train_epochs,
@@ -441,7 +471,11 @@ def main() -> None:
         args=training_args,
         train_dataset=train_ds,
         eval_dataset=eval_ds,
-        reward_funcs=[format_reward, answer_reward, tool_quality_reward],
+        reward_funcs=(
+            [structure_reward, gdpo_answer_reward, tool_reward]
+            if args.use_gdpo
+            else [format_reward, answer_reward, enhanced_tool_quality_reward]
+        ),
         tools=[search_medical_knowledge],
         peft_config=peft_config,
     )
